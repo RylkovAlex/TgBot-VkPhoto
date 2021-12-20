@@ -1,20 +1,29 @@
 const express = require(`express`);
-const mongoose = require(`mongoose`);
-const User = require('./models/user');
 const fetch = require('node-fetch');
+const User = require('./models/user');
+const bot = require('./tg-bot/bot');
 
 require(`./db/mongoose`);
-require(`./tg-bot/bot`);
 
 const app = express();
 const port = process.env.PORT;
+
+const secretPath = `/telegraf/${bot.secretPathComponent()}`;
+
+if (process.env.DEV_MODE) {
+  bot.launch();
+} else {
+  bot.telegram.setWebhook(`${process.env.DOMAIN}${secretPath}`);
+}
+
+app.use(bot.webhookCallback(secretPath));
 
 const fetchVkAccessToken = async (code) => {
   const url = `https://oauth.vk.com/access_token?client_id=${process.env.VK_APP_ID}&client_secret=${process.env.VK_APP_CLIENT_SECRET}&redirect_uri=${process.env.DOMAIN}/vkauth&code=${code}`;
 
   const response = await fetch(url);
   const {
-    access_token: vkAccessToken,
+    access_token,
     user_id: vkId,
     error,
     error_description,
@@ -24,13 +33,13 @@ const fetchVkAccessToken = async (code) => {
     throw new Error(error_description);
   }
 
-  if (!vkAccessToken || !vkId) {
+  if (!access_token || !vkId) {
     throw new Error(
       `Ошибка авторизации, проверьте интернет соединение и попробуйте ещё раз!`
     );
   }
 
-  return { vkAccessToken, vkId };
+  return { access_token, vkId };
 };
 
 app.get(`/vkauth`, async (req, res) => {
@@ -39,24 +48,29 @@ app.get(`/vkauth`, async (req, res) => {
     if (error) {
       throw new Error(error_description);
     }
-    const [userId, chatId] = state.split(`:`)
+    const [userId, chatId] = state.split(`:`);
 
-    const { vkAccessToken, vkId } = await fetchVkAccessToken(code);
+    const { access_token, vkId } = await fetchVkAccessToken(code);
 
     const user = await User.findById(userId);
-    user.vkAccessToken = vkAccessToken;
+    user.vkAccess = {
+      token: access_token,
+      isFull: false,
+    };
     user.vkId = vkId;
     await user.save();
 
-    fetch(encodeURI(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage?chat_id=${chatId}&text=Ок! Необходимые права доступа получены. В разделе /help Вы найдёте команды для моей настройки`))
+    fetch(
+      encodeURI(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage?chat_id=${chatId}&text=Необходимые права доступа получены. В разделе /help Вы найдёте команды для моей настройки`
+      )
+    );
 
     return res.send(
-      `Необходимые права доступа получены. Данную страницу можно закрыть и вернуться в чат с ботом.`
+      `Необходимые права доступа получены.\nДанную страницу можно закрыть и вернуться в чат с ботом.`
     );
   } catch (error) {
-    return res
-      .status(401)
-      .send(`ERROR: ${error.message}`);
+    return res.status(401).send(`ERROR: ${error.message}`);
   }
 });
 

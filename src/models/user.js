@@ -19,9 +19,14 @@ const userSchema = new mongoose.Schema(
       type: Number,
       trim: true,
     },
-    vkAccessToken: {
-      type: String,
-      trim: true,
+    vkAccess: {
+      token: {
+        type: String,
+        trim: true,
+      },
+      isFull: {
+        type: Boolean,
+      },
     },
     email: {
       type: String,
